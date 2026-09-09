@@ -1,3 +1,38 @@
+"""
+Asteroid Risk Scorer - model training.
+
+READ THIS BEFORE TRUSTING THE OUTPUT OF THIS SCRIPT.
+
+This script reports a test AUC of 0.953. That number is misleading.
+
+The target, is_potentially_hazardous_asteroid, is not an observed outcome.
+It is a threshold rule defined by NASA/CNEOS:
+
+    PHA  <=>  absolute magnitude H <= 22.0  AND  MOID <= 0.05 au
+
+`magnitude_h` is used below as an input feature, so half of the rule that
+DEFINES the label is being fed to the model as a predictor. Worse,
+`diameter_km` is not measured - NeoWs derives it from H via an assumed
+albedo - so `diameter_km`, `log_diameter`, `size_category`,
+`kinetic_energy_proxy` and `threat_score` all encode the same quantity.
+
+Consequences, all measured (see README.md and leakage_audit.py):
+
+  - diameter_km + log_diameter + magnitude_h account for 76% of total
+    model gain, and are the same variable counted three times
+  - 614 of 828 asteroids (74.2%) have H > 22.0 and are therefore
+    non-hazardous by definition, with zero exceptions in this dataset
+  - removing any SINGLE feature changes held-out AUC by exactly 0.0000,
+    because five other features still carry the magnitude signal
+  - removing the ENTIRE magnitude family drops AUC to 0.6712 - that is
+    roughly what this model is actually worth
+  - precision on the hazardous class is 0.52: of 27 asteroids flagged,
+    13 were false alarms
+
+This script is kept as-is deliberately, as the subject of a documented
+target-leakage case study. It is not a working risk model. See README.md.
+"""
+
 import sqlite3
 import pandas as pd
 import numpy as np
@@ -86,22 +121,22 @@ from imblearn.over_sampling import SMOTE
 # This separation is fundamental to all supervised ML
 
 X = df[[
-    'diameter_km',           # raw size
+    'diameter_km',           # LEAK: derived from magnitude_h by NeoWs
     'velocity_kps',          # raw speed
-    'miss_dist_km',          # raw distance
-    'magnitude_h',           # brightness (proxy for size)
-    'kinetic_energy_proxy',  # size + speed combined
-    'threat_score',          # size / distance combined
+    'miss_dist_km',          # raw distance - proxy for MOID, not MOID itself
+    'magnitude_h',           # LEAK: half of NASA's PHA definition
+    'kinetic_energy_proxy',  # LEAK: built from diameter, so from magnitude_h
+    'threat_score',          # LEAK: built from diameter, so from magnitude_h
     'is_fast',               # speed flag
-    'size_category',         # size bucket
+    'size_category',         # LEAK: bucketed diameter, so from magnitude_h
     'log_miss_dist',         # distance on log scale
-    'log_diameter'           # diameter on log scale
+    'log_diameter'           # LEAK: log of diameter, so from magnitude_h
 ]]
 
 # y is our label column — True (hazardous) or False (safe)
 y = df['is_hazardous']
 
-print(f"Features shape: {X.shape}")       # should be (34, 10)
+print(f"Features shape: {X.shape}")       # (828, 10) - 6 months of NeoWs data
 print(f"Label distribution:\n{y.value_counts()}")
 
 

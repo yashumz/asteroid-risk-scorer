@@ -8,3 +8,10 @@ frontend/dist/
 .env
 
 frontend/.env.production
+
+.venv/
+model.pkl
+asteroids.db
+__pycache__/
+*.pyc
+.env
